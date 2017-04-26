@@ -1,0 +1,27 @@
+{
+  "name": "crapsengine",
+  "description": "Javascript craps game engine.",
+  "homepage": "https://github.com/wschmrdr/crapsengine",
+  "keywords": [
+    "craps",
+    "craps-game",
+    "craps-engine"
+  ],
+  "author": "wschmrdr",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/wschmrdr/crapsengine.git"
+  },
+  "version": "0.1.0",
+  "license": "MIT",
+  "devDependencies": {
+    "mocha": "*",
+    "should": "*"
+  },
+  "scripts": {
+    "test": "mocha test/test.js"
+  },
+  "engines": [
+    "node >= 4.0.0"
+  ]
+}
