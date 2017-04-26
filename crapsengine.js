@@ -73,19 +73,16 @@
      */
     makeBet(playerBet, canPressMain) {
       // First make sure the bet is allowed and, if necessary, a proper point is set.
-      if (this.pointValue && (playerBet['bet'].constructor === PassLineBet ||
-                              playerBet['bet'].constructor === DontPassLineBet)) {
+      if (this.pointValue && playerBet['bet']['useGamePoint']) {
         // If the point is established, always put the point on the Line and Don't.
         // If there's already a Line/Don't bet, it will be pressed later.
         // If there isn't, it is a "Put" bet, which may be checked later.
         playerBet['bet'].pointMarked(this.pointValue);
-      } else if (!this.pointValue && (playerBet['bet'].constructor === PassLineBet ||
-                                      playerBet['bet'].constructor === DontPassLineBet)) {
+      } else if (!this.pointValue && playerBet['bet']['useGamePoint']) {
         // If no point is established, always cancel the point on the Line and Don't.
         // If there's already a Line/Don't bet, it will be pressed later.
         playerBet['bet'].pointMarked(0);
-      } else if (!this.pointValue &&
-                 (playerBet['bet'].constructor === ComeBet || playerBet['bet'].constructor === DontComeBet) &&
+      } else if (!this.pointValue && playerBet['bet']['hasPoint'] && !playerBet['bet']['useGamePoint'] &&
                  !playerBet['bet']['pointValue']) {
         throw new GameBetNotAllowedError("Cannot make a new Come or Dont Bet when there is no point. Use the line.");
       }
@@ -94,13 +91,14 @@
       // Find if this bet has already been made, and if so, determine if we can "press" it.
       var betPressed = this.getBetsById(playerBet['pid']).find(function(bet) {
         return bet['bet'].constructor === playerBet['bet'].constructor &&
-               bet['bet'].pointValue === playerBet['bet'].pointValue;
+               bet['bet']['name'] === playerBet['bet']['name'] &&
+               bet['bet']['pointValue'] === playerBet['bet']['pointValue'];
       });
       if (betPressed) {
         // "Pressure" on the main bet is not allowed for the Don't Pass and DC.
-        if ((playerBet['bet'].constructor === DontPassLineBet || playerBet['bet'].constructor === DontComeBet) &&
+        if (playerBet['bet']['hasPoint'] && playerBet['bet']['isLose'] &&
             playerBet['bet']['pointValue'] && playerBet['amount'] > 0) {
-          throw GameBetNotAllowedError("Cannot Put a Dont bet with a point.");
+          throw new GameBetNotAllowedError("Cannot Put a Dont bet with a point.");
         }
         this.validateMinimum(playerBet, betPressed);
         var betMaxOdds = this.getGameOddsRatio(betPressed['bet']);
@@ -120,13 +118,11 @@
             newVigTotal += (newBaseTotal - baseTotal);
           }
           // Now we must re-check the maximum and main pressure on a don't.
-          if ((playerBet['bet'].constructor === DontPassLineBet ||
-               playerBet['bet'].constructor === DontComeBet) &&
+          if (playerBet['bet']['isLose'] && playerBet['bet']['hasPoint'] &&
               playerBet['bet']['pointValue'] && newBaseTotal > betPressed['amount']) {
             throw new GameBetNotAllowedError("Cannot Press a Main Dont Bet with a Point.");
           }
-          if ((playerBet['bet'].constructor === BuyBet || playerBet['bet'].constructor === LayBet) &&
-              this.vigOnBet) {
+          if (playerBet['bet']['hasVig'] && this.vigOnBet) {
             var vig = Math.floor(new PlayerBet(betPressed['pid'], betPressed['bet'], newVigTotal).getBetAction()
                       / 20) || 1;
             newBaseTotal = newVigTotal - vig;
@@ -137,8 +133,7 @@
           betPressed['oddsAmount'] = newOddsTotal;
           betPressed['preVigAmount'] = newVigTotal;
         } else {
-          if ((playerBet['bet'].constructor === BuyBet || playerBet['bet'].constructor === LayBet) &&
-              this.vigOnBet) {
+          if (playerBet['bet']['hasVig'] && this.vigOnBet) {
             var vig = Math.floor(new PlayerBet(betPressed['pid'], betPressed['bet'], newVigTotal).getBetAction()
                       / 20) || 1;
             baseTotal = newVigTotal - vig;
@@ -152,8 +147,7 @@
         return betPressed;
       } else {
         // "Put" bets are not allowed for the Don't Pass and DC.
-        if ((playerBet['bet'].constructor === DontPassLineBet || playerBet['bet'].constructor === DontComeBet) &&
-            playerBet['bet']['pointValue']) {
+        if (playerBet['bet']['hasPoint'] && playerBet['bet']['isLose'] && playerBet['bet']['pointValue']) {
           throw new GameBetNotAllowedError("Cannot Put a Dont bet with a point.");
         }
         this.validateMinimum(playerBet);
@@ -171,8 +165,7 @@
             var newBaseTotal = baseTotal + Math.ceil((oddsTotal - (baseTotal * betMaxOdds)) / (betMaxOdds + 1));
             var newOddsTotal = oddsTotal - (newBaseTotal - baseTotal);
           }
-          if ((playerBet['bet'].constructor === BuyBet || playerBet['bet'].constructor === LayBet) &&
-              this.vigOnBet) {
+          if (playerBet['bet']['hasVig'] && this.vigOnBet) {
             var vig = Math.floor(new PlayerBet(playerBet['pid'], playerBet['bet'], newBaseTotal).getBetAction()
                       / 20) || 1;
             playerBet['preVigAmount'] = newBaseTotal;
@@ -182,8 +175,7 @@
                                playerBet);
           playerBet['amount'] = newBaseTotal;
           playerBet['oddsAmount'] = newOddsTotal;
-        } else if ((playerBet['bet'].constructor === BuyBet || playerBet['bet'].constructor === LayBet) &&
-                   this.vigOnBet) {
+        } else if (playerBet['bet']['hasVig'] && this.vigOnBet) {
           var vig = Math.floor(new PlayerBet(playerBet['pid'], playerBet['bet'], baseTotal).getBetAction()
                     / 20) || 1;
           baseTotal -= vig;
@@ -208,6 +200,7 @@
     findBet(playerBet) {
       return this.getBetsById(playerBet['pid']).find(function(bet) {
         return bet['bet'].constructor === playerBet['bet'].constructor &&
+               bet['bet']['name'] === playerBet['bet']['name'] &&
                bet['bet'].pointValue === playerBet['bet'].pointValue;
       });
     }
@@ -260,7 +253,7 @@
       // Generally, in order to "shoot", a player must have a line bet on the table.
       // There must be at least one Pass or Don't Pass bet on the table to roll.
       if (!this.playerBets.find(function(bet) {
-        return bet['bet'].constructor === PassLineBet || bet['bet'].constructor === DontPassLineBet;
+        return bet['bet']['hasPoint'] && bet['bet']['useGamePoint'];
       })) {
         if (callback != null) {
           callback(null, 0);
@@ -321,6 +314,7 @@
     getPlayerActionById(pid, centerOnly, exception) {
       return this.getBetsById(pid).reduce(function(total, bet) {
         if (exception && bet['bet'].constructor === exception['bet'].constructor &&
+            bet['bet']['name'] === exception['bet']['name'] &&
             bet['bet']['pointValue'] === exception['bet']['pointValue']) {
           return total;
         }
@@ -636,27 +630,41 @@
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
      * This should only be used as a super call, or for a custom bet.
-     * @param name [String] The name of the bet.
-     * @param hasPoint [Boolean] Can this bet have a point established for it?
+     * @param params [Object] All the parameters needed for the bet according to options.
+     * @option params name [String] The name of the bet.
+     * @option params hasPoint [Boolean] Can this bet have a point established for it?
      * @note If and only if the bet can have a point, it is a "contract" bet.
      * @note All bets with hasPoint allow for odds to be placed.
      * @note All odds are not "contract", and may be pulled at any time.
-     * @param pointValue [Number] The current "point" for this bet.
+     * @option params useGamePoint [Boolean] Is the point always to be equal to the game's pointValue?
+     * @option params pointValue [Number] The current "point" for this bet.
      * @note It is permissible to make a point bet after the point is established.
      * @note The point will also be used for place, buy, and lay bets.
-     * @param overrideComeOut [Boolean] Is this bet active on the 'come out roll'?
-     * @param isLose [Boolean] Is this bet a "Don't" bet that wins on a 'seven out'?
-     * @param isCenter [Boolean] Is this bet part of the 'center of the table' subject to lower limits?
-     * @param resolves [Array<Object(Array<DiceRoll>, Number)>] The rolls and pays that resolve this bet.
+     * @option params overrideComeOut [Boolean] Is this bet active on the 'come out roll'?
+     * @option params isLose [Boolean] Is this bet a "Don't" bet that wins on a 'seven out'?
+     * @option params isCenter [Boolean] Is this bet part of the 'center of the table' subject to lower limits?
+     * @option params hasVig [Boolean] Does this bet charge a 5% commission?
+     * @option params resolves [Array<Object(Array<DiceRoll>, Number)>] The rolls and pays that resolve this bet.
+     * @option params pointMarked [function(pointValue[, resolves, pointResolves])] A custom function to set the point on a bet.
+     * @option params evaluateRoll [function(table, playerBet, roll)] A custom function to determine if the bet is resolved.
      */
-    constructor(name, hasPoint, pointValue, overrideComeOut, isLose, isCenter, resolves) {
-      this.name = name;
-      this.hasPoint = hasPoint;
-      this.pointValue = pointValue;
-      this.overrideComeOut = overrideComeOut;
-      this.isLose = isLose;
-      this.isCenter = isCenter;
-      this.resolves = resolves;
+    constructor(params) {
+      params = (typeof(params) === 'object') ? params : {};
+      this.name = params['name'] || 'Bet';
+      this.hasPoint = params['hasPoint'] || false;
+      this.useGamePoint = params['useGamePoint'] || false;
+      this.pointValue = params['pointValue'] || 0;
+      this.overrideComeOut = params['overrideComeOut'] || false;
+      this.isLose = params['isLose'] || false;
+      this.isCenter = params['isCenter'] || false;
+      this.hasVig = params['hasVig'] || false;
+      this.resolves = params['resolves'] || [];
+      if (typeof(params['pointMarked']) === 'function') {
+        this.pointMarked = params['pointMarked'];
+      }
+      if (typeof(params['evaluateRoll']) === 'function') {
+        this.evaluateRoll = params['evaluateRoll'];
+      }
     }
 
     /**
@@ -710,6 +718,17 @@
       for (var x=0; x<this.resolves.length; x++) {
         if (this.resolves[x]['rolls'].find(function(resRoll) { return resRoll.isEqual(roll); })) {
           var retPay = override ? Math.floor(this.resolves[x]['pay'] * playerBet['amount']) : 0;
+          if (retPay > 0 && this['hasVig'] && !table['vigOnBet']) {
+            // The 5% Commission is only ever paid on a win, and only on the main bet.
+            if (this['isLose']) {
+              // The 5% Commission is based from the win.
+              var vig = Math.floor(retPay / 20) || 1;
+            } else {
+              // The 5% Commission is based from the bet.
+              var vig = Math.floor(playerBet['amount'] / 20) || 1;
+            }
+            retPay -= vig;
+          }
           if (this.resolves[x]['pay'] >= 0 && playerBet['oddsAmount'] > 0) {
             // Get the odds ratio for the original point before paying it.
             retPay += oddsOverride ? Math.floor(this.getBetOddsRatio() * playerBet['oddsAmount']) : 0;
@@ -761,17 +780,19 @@
     /**
      * Create the bet instance and set the point, if any. This is usually attached to a PlayerBet.
      * This should only be used as a super call. The rules for Pass Line and Come are exactly the same.
-     * @param name [String] The name of the bet.
-     * @note hasPoint is true.
-     * @param pointValue [Number] The current point for this bet.
-     * @note overrideComeOut is true.
-     * @param isLose [Boolean] Is this bet a "Don't" bet that wins on a 'seven out'?
-     * @note isCenter is false.
-     * @note resolves is empty.
+     * @param params [Object] All the parameters needed for the bet according to options.
+     * @option params name [String] The name of the bet.
+     * @option params useGamePoint [Boolean] Is the point always to be equal to the game's pointValue?
+     * @option params pointValue [Number] The current point for this bet.
      */
-    constructor(name, pointValue, isLose) {
+    constructor(params) {
       // Initially set the point to 0 so it can be marked.
-      super(name, true, 0, true, isLose, false, []);
+      params = (typeof(params) === 'object') ? params : {};
+      var pointValue = params['pointValue'];
+      params['pointValue'] = 0;
+      params['hasPoint'] = true;
+      params['overrideComeOut'] = true;
+      super(params);
       this.pointMarked(pointValue); // The bet could be made "late", so account for this.
     }
 
@@ -824,17 +845,20 @@
     /**
      * Create the bet instance and set the point, if any. This is usually attached to a PlayerBet.
      * This should only be used as a super call. The rules for Pass Line and Come are exactly the same.
-     * @param name [String] The name of the bet.
-     * @note hasPoint is true.
-     * @param pointValue [Number] The current point for this bet.
-     * @note overrideComeOut is true.
-     * @note isLose is true.
-     * @note isCenter is false.
-     * @note resolves is empty.
+     * @param params [Object] All the parameters needed for the bet according to options.
+     * @option params name [String] The name of the bet.
+     * @option params useGamePoint [Boolean] Is the point always to be equal to the game's pointValue?
+     * @option params pointValue [Number] The current point for this bet.
      */
-    constructor(name, pointValue) {
+    constructor(params) {
+      params = (typeof(params) === 'object') ? params : {};
+      var pointValue = params['pointValue'];
+      params['pointValue'] = 0;
+      params['hasPoint'] = true;
+      params['overrideComeOut'] = true;
+      params['isLose'] = true;
       // Initially set the point to 0 so it can be marked.
-      super(name, true, 0, true, true, false, []);
+      super(params);
       this.pointMarked(pointValue); // The bet could be made "late", so account for this.
     }
 
@@ -892,10 +916,14 @@
     /**
      * Create the bet instance and set the point, if any. This is usually attached to a PlayerBet.
      * @param pointValue [Number] The current point for this bet.
-     * @note name is 'Pass Line'.
      */
     constructor(pointValue) {
-      super('Pass Line', pointValue);
+      var params = {
+        'name': 'Pass Line',
+        'useGamePoint': true,
+        'pointValue': pointValue
+      };
+      super(params);
     }
   }
 
@@ -907,10 +935,14 @@
     /**
      * Create the bet instance and set the point, if any. This is usually attached to a PlayerBet.
      * @param pointValue [Number] The current point for this bet.
-     * @note name is 'Dont Pass Line'.
      */
     constructor(pointValue) {
-      super('Dont Pass Line', pointValue);
+      var params = {
+        'name': 'Dont Pass Line',
+        'useGamePoint': true,
+        'pointValue': pointValue
+      };
+      super(params);
     }
   }
 
@@ -922,10 +954,13 @@
     /**
      * Create the bet instance and set the point, if any. This is usually attached to a PlayerBet.
      * @param pointValue [Number] The current point for this bet.
-     * @note name is 'Come'.
      */
     constructor(pointValue) {
-      super('Come', pointValue);
+      var params = {
+        'name': 'Come',
+        'pointValue': pointValue
+      };
+      super(params);
     }
   }
 
@@ -937,10 +972,13 @@
     /**
      * Create the bet instance and set the point, if any. This is usually attached to a PlayerBet.
      * @param pointValue [Number] The current point for this bet.
-     * @note name is 'Dont Come'.
      */
     constructor(pointValue) {
-      super('Dont Come', pointValue);
+      var params = {
+        'name': 'Dont Come',
+        'pointValue': pointValue
+      };
+      super(params);
     }
   }
 
@@ -952,13 +990,7 @@
   class FieldBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Field.
-     * @note hasPoint is false.
-     * @note pointValue does not apply to this bet.
-     * @note overrideComeOut is true.
-     * @note isLose is false.
-     * @note isCenter is false.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -979,7 +1011,12 @@
           'pay': -1
         }
       ];
-      super('Field', false, 0, true, false, false, resolves);
+      var params = {
+        'name': 'Field',
+        'overrideComeOut': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -1000,13 +1037,7 @@
   class StingyFieldBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Field.
-     * @note hasPoint is false.
-     * @note pointValue does not apply to this bet.
-     * @note overrideComeOut is true.
-     * @note isLose is false.
-     * @note isCenter is false.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -1023,7 +1054,12 @@
           'pay': -1
         }
       ];
-      super('Field', false, 0, true, false, false, resolves);
+      var params = {
+        'name': 'Field',
+        'overrideComeOut': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -1043,16 +1079,14 @@
   class BigBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Big {6, 8}.
-     * @note hasPoint is false.
      * @param pointValue [Number] The winning roll for this bet.
-     * @note overrideComeOut is true.
-     * @note isLose is false.
-     * @note isCenter is false.
-     * @note resolves is set to the pays for this bet.
      */
     constructor(pointValue) {
-      super('Big ' + pointValue, false, 0, true, false, false, []);
+      var params = {
+        'name': 'Big ' + pointValue,
+        'overrideComeOut': true,
+      };
+      super(params);
       this.pointMarked(pointValue);
     }
 
@@ -1092,16 +1126,13 @@
   class PlaceBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Place.
-     * @note hasPoint is false.
      * @param pointValue [Number] The winning roll for this bet.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is false.
-     * @note resolves is set to the pays for this bet.
      */
     constructor(pointValue) {
-      super('Place', false, 0, false, false, false, []);
+      var params = {
+        'name': 'Place',
+      };
+      super(params);
       this.pointMarked(pointValue);
     }
 
@@ -1166,16 +1197,14 @@
   class BuyBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Buy.
-     * @note hasPoint is false.
      * @param pointValue [Number] The winning roll for this bet.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is false.
-     * @note resolves is set to the pays for this bet.
      */
     constructor(pointValue) {
-      super('Buy', false, 0, false, false, false, []);
+      var params = {
+        'name': 'Buy',
+        'hasVig': true
+      };
+      super(params);
       this.pointMarked(pointValue);
     }
 
@@ -1231,41 +1260,6 @@
       }
       return oddsRatio;
     }
-
-    /**
-     * Determine the outcome for this bet.
-     * Because of the commission, this needs to be overridden.
-     * @param table [Game] The present game being played.
-     * @param playerBet [PlayerBet] The bet that is being evaluated.
-     * @param roll [DiceRoll] On what roll value the bet is being evaluated.
-     * @return [Number] The amount paid in addition to a 'returned bet', or null if the bet is still active.
-     */
-    evaluateRoll(table, playerBet, roll) {
-      // Determine the override values on this bet.
-      // On the "come out roll", the bet is according to overrideComeOut.
-      // Odds on the "come out roll" for positive bets are off, negative bets are on.
-      var override = false;
-      // Now set the overrides based on player wishes and current game standing.
-      if (playerBet['override'] === true || playerBet['override'] === false) {
-        // The player has specifically requested a bet be always on or always off.
-        override = playerBet['override'];
-      } else if (table['pointValue']) {
-        // A point is established; the bet is on.
-        override = true;
-      }
-      for (var x=0; x<this.resolves.length; x++) {
-        if (this.resolves[x]['rolls'].find(function(resRoll) { return resRoll.isEqual(roll); })) {
-          var retPay = override ? (this.resolves[x]['pay'] * playerBet['amount']) : 0;
-          if (retPay > 0 && !table['vigOnBet']) {
-            // The 5% Commission is only ever paid on a win.
-            var vig = Math.floor(playerBet['amount'] / 20) || 1;
-            retPay -= vig;
-          }
-          return Math.floor(retPay);
-        }
-      }
-      return null;
-    }
   }
 
   /**
@@ -1275,16 +1269,16 @@
   class LayBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Lay.
-     * @note hasPoint is false.
      * @param pointValue [Number] The winning roll for this bet.
-     * @note overrideComeOut is false.
-     * @note isLose is true.
-     * @note isCenter is false.
-     * @note resolves is set to the pays for this bet.
      */
     constructor(pointValue) {
-      super('Lay', false, 0, false, true, false, []);
+      var params = {
+        'name': 'Lay',
+        'overrideComeOut': true,
+        'isLose': true,
+        'hasVig': true
+      };
+      super(params);
       this.pointMarked(pointValue);
     }
 
@@ -1340,37 +1334,6 @@
       }
       return oddsRatio;
     }
-
-    /**
-     * Determine the outcome for this bet.
-     * Because of the commission, this needs to be overridden.
-     * @param table [Game] The present game being played.
-     * @param playerBet [PlayerBet] The bet that is being evaluated.
-     * @param roll [DiceRoll] On what roll value the bet is being evaluated.
-     * @return [Number] The amount paid in addition to a 'returned bet', or null if the bet is still active.
-     */
-    evaluateRoll(table, playerBet, roll) {
-      // Determine the override values on this bet.
-      // The "come out roll" for negative bets are on.
-      var override = true;
-      // Now set the overrides based on player wishes and current game standing.
-      if (playerBet['override'] === true || playerBet['override'] === false) {
-        // The player has specifically requested a bet be always on or always off.
-        override = playerBet['override'];
-      } 
-      for (var x=0; x<this.resolves.length; x++) {
-        if (this.resolves[x]['rolls'].find(function(resRoll) { return resRoll.isEqual(roll); })) {
-          var retPay = override ? (this.resolves[x]['pay'] * playerBet['amount']) : 0;
-          if (retPay > 0 && !table['vigOnBet']) {
-            // The 5% Commission is only ever paid on a win, as based from the win.
-            var vig = Math.floor(retPay / 20) || 1;
-            retPay -= vig;
-          }
-          return Math.floor(retPay);
-        }
-      }
-      return null;
-    }
   }
 
   /**
@@ -1380,16 +1343,14 @@
   class HardwayBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Hard {4, 6, 8, 10}.
-     * @note hasPoint is false.
      * @param pointValue [Number] The winning roll for this bet.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
      */
     constructor(pointValue) {
-      super('Hard ' + pointValue, false, 0, false, false, true, []);
+      var params = {
+        'name': 'Hard ' + pointValue,
+        'isCenter': true
+      };
+      super(params);
       this.pointMarked(pointValue);
     }
 
@@ -1451,13 +1412,7 @@
   class AcesStraightBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Aces.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -1470,7 +1425,13 @@
           'pay': -1
         }
       ];
-      super('Aces', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'Aces',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -1490,13 +1451,7 @@
   class TwelveStraightBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Twelve.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -1509,7 +1464,13 @@
           'pay': -1
         }
       ];
-      super('Twelve', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'Twelve',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -1529,13 +1490,7 @@
   class AceDeuceStraightBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Ace Deuce.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -1548,7 +1503,13 @@
           'pay': -1
         }
       ];
-      super('Ace Deuce', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'Ace Deuce',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -1568,13 +1529,7 @@
   class YoStraightBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Yo.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -1587,7 +1542,13 @@
           'pay': -1
         }
       ];
-      super('Yo', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'Yo',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -1607,13 +1568,7 @@
   class HiLoBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Hi Lo.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -1629,7 +1584,13 @@
           'pay': -1
         }
       ];
-      super('Hi Lo', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'Hi Lo',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -1649,13 +1610,7 @@
   class HiLoYoBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Hi Lo Yo.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -1678,7 +1633,13 @@
           'pay': -1
         }
       ];
-      super('Hi Lo Yo', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'Hi Lo Yo',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -1698,13 +1659,7 @@
   class AnyCrapsBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Any Craps.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -1717,7 +1672,13 @@
           'pay': -1
         }
       ];
-      super('Any Craps', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'Any Craps',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -1737,13 +1698,7 @@
   class CAndEBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is C and E.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -1761,7 +1716,13 @@
           'pay': -1
         }
       ];
-      super('C and E', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'C and E',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -1781,13 +1742,7 @@
   class HornBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Horn.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -1805,7 +1760,13 @@
           'pay': -1
         }
       ];
-      super('Horn', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'Horn',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -1825,13 +1786,7 @@
   class HornHighAcesBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Horn High Aces.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -1853,7 +1808,13 @@
           'pay': -1
         }
       ];
-      super('Horn High Aces', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'Horn High Aces',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -1873,13 +1834,7 @@
   class HornHighTwelveBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Horn High Twelve.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -1901,7 +1856,13 @@
           'pay': -1
         }
       ];
-      super('Horn High Twelve', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'Horn High Twelve',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -1921,13 +1882,7 @@
   class HornHighAceDeuceBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Horn High Ace Deuce.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -1949,7 +1904,13 @@
           'pay': -1
         }
       ];
-      super('Horn High Ace Deuce', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'Horn High Ace Deuce',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -1969,13 +1930,7 @@
   class HornHighYoBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Horn High Yo.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -1997,7 +1952,13 @@
           'pay': -1
         }
       ];
-      super('Horn High Yo', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'Horn High Yo',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -2017,13 +1978,7 @@
   class AnySevenBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is Any Seven.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -2036,7 +1991,13 @@
           'pay': -1
         }
       ];
-      super('Any Seven', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'Any Seven',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**
@@ -2056,13 +2017,7 @@
   class WorldBet extends BaseBet {
     /**
      * Create the bet instance. This is usually attached to a PlayerBet.
-     * @note name is World.
-     * @note hasPoint is false.
-     * @note pointValue is 0.
-     * @note overrideComeOut is false.
-     * @note isLose is false.
-     * @note isCenter is true.
-     * @note resolves is set to the pays for this bet.
+     * @param pointValue [Number] The current point for this bet. Does not apply to this bet.
      */
     constructor(pointValue) {
       var resolves = [
@@ -2084,7 +2039,13 @@
           'pay': -1
         }
       ];
-      super('World', false, 0, true, false, true, resolves);
+      var params = {
+        'name': 'World',
+        'overrideComeOut': true,
+        'isCenter': true,
+        'resolves': resolves
+      };
+      super(params);
     }
 
     /**

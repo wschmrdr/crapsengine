@@ -24,4 +24,5 @@ describe('main', function() {
   importTest('Lay Bets', './lay');
   importTest('Hardway Bets', './hardway');
   importTest('One Roll Center Bets', './onerollcenter');
+  importTest('Custom Bets', './custom');
 });

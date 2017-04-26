@@ -55,10 +55,12 @@ This should only be created when the game first starts, and only be abandoned af
 * **highLimit** `Number` Maximum across all bets for a player based on positive bet. Defualt: 10000
 * **highCenter** `Number` Maximum across all "center" bets. Default: 100
 * **maxOdds** `Number` Maximum multiple of odds on a positive pass or come. Default: -2 (3-4-5 odds)
+
 A zero or positive number for odds is a straight multiple of the base bet for a positive bet.
 A -1 for odds is a common "Full Double" system, which gives 2x on evevrything except 6 and 8, which is 2.5x.
 A -2 for odds is a common "3-4-5" system, where 4 and 10 are 3x, 5 and 9 are 4x, and 6 and 8 are 5x.
 The maximum odds for a negative bet are multiplied by the statistical ratio of rolling a 7 vs. the point.
+
 * **vigOnBet** `Boolean` For Buy and Lay bets, do we collect a commission, or "vig", on the bet? Default: False
 
 #### makeBet(playerBet, canPressMain)
@@ -128,16 +130,23 @@ Returns DiceRoll instances based on a specific roll value.
 * **exceptRoll** `DiceRoll` Of the DiceRoll instances found, a single instance to not return.
 
 ### BaseBet Methods
-#### constructor(name, hasPoint, pointValue, overrideComeOut, isLose, isCenter, resolves)
+#### constructor(params)
 Creates a Bet instance that will be attached to a PlayerBet.
 This class should be extended when creating custom bets with custom behavior.
-* **name** `String` The name of the bet.
-* **hasPoint** `Boolean` Is this a contract bet where a point will be established after the bet is made?
-* **pointValue** `Number` The "point" for this bet, or the specific number for the bet to usually signify a win.
-* **overrideComeOut** `Boolean` Is this bet normally working when the game has no point established?
-* **isLose** `Boolean` Is this a Don't Bet that is subject to special rules?
-* **isCenter** `Boolean` Is this bet in the "center of the table" and subject to lower limits?
-* **resolves** `Array<Object(Array<DiceRoll>, Number)>` The rolls and corresponding pay, after return of the wager, to resolve this bet. A losing roll always has a pay ratio of -1.
+* **params** `Object` An object containg options for the bet.
+
+The following options are available:
+* **name** `String` The name of the bet. Default: "Bet"
+* **hasPoint** `Boolean` Is this a contract bet where a point will be established after the bet is made? Default: false
+* **useGamePoint** `Boolean` Is the "point" for tihs bet expected to match the point for the game? Default: false
+* **pointValue** `Number` The "point" for this bet, or the specific number for the bet to usually signify a win. default: 0
+* **overrideComeOut** `Boolean` Is this bet normally working when the game has no point established? Default: false
+* **isLose** `Boolean` Is this a Don't Bet that is subject to special rules? Default: false
+* **isCenter** `Boolean` Is this bet in the "center of the table" and subject to lower limits? Default: false
+* **hasVig** `Boolean` Is this bet subject to the rules about taking a 5% commission? Default: false
+* **resolves** `Array<Object(Array<DiceRoll>, Number)>` The rolls and corresponding pay, after return of the wager, to resolve this bet. A losing roll always has a pay ratio of -1. Default: []
+* **pointMarked** `function(pointValue[, resolves, pointResolves])` A custom function to set the point on the bet. Default: see the implemention of pointMarked in this method.
+* **evaluateRoll** `function(table, playerBet, roll)` A custom function to evaluate the roll. Default: see the implemention of evaluateRoll in this method.
 
 #### pointMarked(pointValue, resolves, pointResolves)
 Establish a point if one has not yet been established or must be cleared, and set the corresponding resolves.
