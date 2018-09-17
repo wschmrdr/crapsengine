@@ -12,6 +12,7 @@
     "type": "git",
     "url": "git://github.com/wschmrdr/crapsengine.git"
   },
+  "main": "crapsengine.js",
   "version": "0.2.0",
   "license": "MIT",
   "devDependencies": {
