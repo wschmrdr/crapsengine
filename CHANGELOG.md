@@ -1,5 +1,10 @@
 ## CHANGELOG
 
+### Changes from 0.2.0 to 0.2.1
+#### Fixes
+Updated the package.json file to be proper.
+Updated the version number to 0.2.1.
+
 ### Changes from 0.1.0 to 0.2.0
 #### Breaking Changes
 * Refactoring of BaseBet to accept a single object containing all the previous parameters.
